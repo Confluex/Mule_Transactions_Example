@@ -6,13 +6,12 @@
     xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
     xmlns:spring="http://www.springframework.org/schema/beans" 
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="
-    	http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
-		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
-		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
-		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
-		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
-		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+    xsi:schemaLocation="http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
 
     <context:property-placeholder location="${env:local}-app.properties"/>
 
@@ -32,13 +31,15 @@
     <flow name="update-salary-flow">
         <vm:inbound-endpoint exchange-pattern="one-way" path="update-salary" doc:name="VM">
         </vm:inbound-endpoint>
-        <set-variable variableName="updateSalary" value="#[payload]" doc:name="updateSalary" doc:description="preserve the original payload for later use"/>
-        <db:update config-ref="Generic_Database_Configuration" doc:name="update currect salary record">
-            <db:parameterized-query><![CDATA[UPDATE salary_history SET to_date=#[json:change_date] WHERE emp_no=#[json:emp_no] and to_date='9999-01-01']]></db:parameterized-query>
-        </db:update>
-        <set-payload value="#[flowVars.updateSalary]" doc:name="updateSalary" doc:description="reload the payload from the updateSalary variable"/>
-        <db:insert config-ref="Generic_Database_Configuration" doc:name="insert new salary record">
-            <db:parameterized-query><![CDATA[INSERT INTO salary_history(emp_no,salary,from_date,to_date) values(#[json:emp_no],#[json:new_salary], #[json:change_date], '9999-01-01')]]></db:parameterized-query>
-        </db:insert>
+        <enricher target="variable:updatedRecords" doc:name="Message Enricher">
+            <db:update config-ref="Generic_Database_Configuration" doc:name="update currect salary record">
+                <db:parameterized-query><![CDATA[UPDATE salary_history SET to_date=#[json:change_date] WHERE emp_no=#[json:emp_no] and to_date='9999-01-01']]></db:parameterized-query>
+            </db:update>
+        </enricher>
+        <enricher target="variable:newRecords" doc:name="Message Enricher">
+            <db:insert config-ref="Generic_Database_Configuration" doc:name="insert new salary record">
+                <db:parameterized-query><![CDATA[INSERT INTO salary_history(emp_no,salary,from_date,to_date) values(#[json:emp_no],#[json:new_salary], #[json:change_date], '9999-01-01')]]></db:parameterized-query>
+            </db:insert>
+        </enricher>
     </flow>
 </mule>
