@@ -31,15 +31,20 @@ http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/
     <flow name="update-salary-flow">
         <vm:inbound-endpoint exchange-pattern="one-way" path="update-salary" doc:name="VM">
         </vm:inbound-endpoint>
-        <enricher target="variable:updatedRecords" doc:name="Message Enricher">
-            <db:update config-ref="Generic_Database_Configuration" doc:name="update currect salary record">
-                <db:parameterized-query><![CDATA[UPDATE salary_history SET to_date=#[json:change_date] WHERE emp_no=#[json:emp_no] and to_date='9999-01-01']]></db:parameterized-query>
-            </db:update>
-        </enricher>
-        <enricher target="variable:newRecords" doc:name="Message Enricher">
-            <db:insert config-ref="Generic_Database_Configuration" doc:name="insert new salary record">
-                <db:parameterized-query><![CDATA[INSERT INTO salary_history(emp_no,salary,from_date,to_date) values(#[json:emp_no],#[json:new_salary], #[json:change_date], '9999-01-01')]]></db:parameterized-query>
-            </db:insert>
-        </enricher>
+        <transactional action="ALWAYS_BEGIN" doc:name="Transactional">
+            <enricher target="variable:updatedRecords" doc:name="Message Enricher">
+                <db:update config-ref="Generic_Database_Configuration" doc:name="update currect salary record">
+                    <db:parameterized-query><![CDATA[UPDATE salary_history SET to_date=#[json:change_date] WHERE emp_no=#[json:emp_no] and to_date='9999-01-01']]></db:parameterized-query>
+                </db:update>
+            </enricher>
+            <enricher target="variable:insertedRecords" doc:name="Message Enricher">
+                <db:insert config-ref="Generic_Database_Configuration" doc:name="insert new salary record">
+                    <db:parameterized-query><![CDATA[INSERT INTO salary_history(emp_no,salary,from_date,to_date) values(#[json:emp_no],#[json:new_salary], #[json:change_date], '9999-01-01')]]></db:parameterized-query>
+                </db:insert>
+            </enricher>
+            <catch-exception-strategy when="JdbcSQLException" doc:name="Catch Exception Strategy">
+                <vm:outbound-endpoint exchange-pattern="one-way" path="dead-letter" doc:name="send to dead-letter queue"/>
+            </catch-exception-strategy>
+        </transactional>
     </flow>
 </mule>

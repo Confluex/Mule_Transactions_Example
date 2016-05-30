@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<mule 
+<mule xmlns:mock="http://www.mulesoft.org/schema/mule/mock" 
     xmlns="http://www.mulesoft.org/schema/mule/core" 
     xmlns:db="http://www.mulesoft.org/schema/mule/db" 
     xmlns:vm="http://www.mulesoft.org/schema/mule/vm" 
@@ -9,12 +9,12 @@
     xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" 
     xmlns:spring="http://www.springframework.org/schema/beans" 
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="
-        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
-        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
-        http://www.mulesoft.org/schema/mule/dbserver http://www.mulesoft.org/schema/mule/dbserver/current/mule-dbserver.xsd
-        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
-        http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd">
+    xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+http://www.mulesoft.org/schema/mule/dbserver http://www.mulesoft.org/schema/mule/dbserver/current/mule-dbserver.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+http://www.mulesoft.org/schema/mule/mock http://www.mulesoft.org/schema/mule/mock/current/mule-mock.xsd">
         
     <munit:config mock-connectors="false" mock-inbounds="false" name="munit" doc:name="MUnit configuration"/>
     <spring:beans>
@@ -24,17 +24,33 @@
     <munit:before-suite name="munit-database-server-practice-test-suiteBefore_Suite" description="MUnit Test">
         <dbserver:start-db-server config-ref="DB_Server" doc:name="startServer"/>
     </munit:before-suite>
+    <munit:before-test name="munit-database-server-practice-test-suiteBefore_Test" description="Before tests actions">
+        <dbserver:execute config-ref="DB_Server" sql="#[getResource('jdbc/resetTables.sql').asString()]" doc:name="Run SQL script to truncate and reload tables"/>
+    </munit:before-test>
     <munit:test name="validate-query-employees-table" description="MUnit Test">
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM employees WHERE emp_no=10001;" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;\n&quot;10001&quot;,&quot;02-Sep-1973&quot;,&quot;George&quot;,&quot;Johnson&quot;,&quot;M&quot;,&quot;26-Jun-2012&quot;" doc:name="validateQuery"/>
     </munit:test>
     <munit:test name="validate-query-salary_history-table" description="MUnit Test">
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='9999-01-01';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;88958&quot;,&quot;22-Jun-2015&quot;,&quot;01-Jan-9999&quot;" doc:name="validateQuery"/>
     </munit:test>
-    <munit:test name="update-salary-test" description="MUnit Test">
-        <munit:set payload="#[getResource('updateSalaryTest.json').asString()]" doc:name="Set Message"/>
+    <munit:test name="update-salary-happy-path-test" description="MUnit Test">
+        <munit:set payload="#[getResource('updateSalaryTest.json').asString()]" doc:name="Set Message: good data"/>
         <flow-ref name="update-salary-flow" doc:name="update-salary-flow"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='2016-05-28';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;88958&quot;,&quot;22-Jun-2015&quot;,&quot;28-May-2016&quot;" doc:name="validateQuery: old record updated"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='9999-01-01';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;95000&quot;,&quot;28-May-2016&quot;,&quot;01-Jan-9999&quot;" doc:name="validateQuery: new record added"/>
+    </munit:test>
+    <munit:test name="update-salary-bad-data-test" description="MUnit Test">
+        <mock:when messageProcessor=".*:.*" doc:name="Mock: dead-letter queue">
+            <mock:with-attributes>
+                <mock:with-attribute name="doc:name" whereValue="#['send to dead-letter queue']"/>
+            </mock:with-attributes>
+            <mock:then-return payload="&quot;dead-letter&quot;"/>
+        </mock:when>
+        <munit:set payload="#[getResource('updateSalaryBadDataTest.json').asString()]" doc:name="Set Message: bad data"/>
+        <flow-ref name="update-salary-flow" doc:name="update-salary-flow"/>
+        <munit:assert-payload-equals message="The message was expected to be sent to the dead-letter queue" expectedValue="&quot;dead-letter&quot;" doc:name="Assert Payload: message sent to dead-letter queue"/>
+        <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='9999-01-01';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;88958&quot;,&quot;22-Jun-2015&quot;,&quot;01-Jan-9999&quot;" doc:name="validateQuery: new record added"/>
+        <dbserver:validate-that config-ref="DB_Server" query="SELECT COUNT(*) FROM salary_history WHERE emp_no=10001;" returns="&quot;COUNT(*)&quot;\n&quot;3&quot;" doc:name="validateQuery: count records to verify none were added"/>
     </munit:test>
     <munit:after-suite name="munit-database-server-practice-test-suiteAfter_Suite" description="Ater suite actions">
         <dbserver:stop-db-server config-ref="DB_Server" doc:name="stopServer"/>
