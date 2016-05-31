@@ -27,16 +27,17 @@ http://www.mulesoft.org/schema/mule/mock http://www.mulesoft.org/schema/mule/moc
     <munit:test name="validate-query-employees-table" description="MUnit Test">
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM employees WHERE emp_no=10001;" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;\n&quot;10001&quot;,&quot;02-Sep-1973&quot;,&quot;George&quot;,&quot;Johnson&quot;,&quot;M&quot;,&quot;26-Jun-2012&quot;" doc:name="validateQuery"/>
     </munit:test>
-    <munit:test name="validate-query-salary_history-table" description="MUnit Test">
-        <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='9999-01-01';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;88958&quot;,&quot;22-Jun-2015&quot;,&quot;01-Jan-9999&quot;" doc:name="validateQuery"/>
+    <munit:test name="shouldNotInsertEmployeeIfInsertSalaryFails" description="MUnit Test">
+        <munit:set payload="#[getResource('goodEmployeeBadSalary.json').asString()]" doc:name="Set Message"/>
+        <flow-ref name="insert-update-employee-and-salary" doc:name="insert-update-employee-and-salary"/>
+        <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM employees where last_name = 'Norris';" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;" doc:name="validateQuery: old record updated"/>
     </munit:test>
-    <munit:test name="update-salary-happy-path-test" description="MUnit Test">
+    <munit:test name="update-salary-subflow-test" description="MUnit Test">
         <munit:set payload="#[getResource('updateSalaryTest.json').asString()]" doc:name="Set Message: good data"/>
-        <flow-ref name="update-salary-flow" doc:name="update-salary-flow"/>
-        <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='2016-05-28';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;88958&quot;,&quot;22-Jun-2015&quot;,&quot;28-May-2016&quot;" doc:name="validateQuery: old record updated"/>
-        <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='9999-01-01';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;95000&quot;,&quot;28-May-2016&quot;,&quot;01-Jan-9999&quot;" doc:name="validateQuery: new record added"/>
+        <flow-ref name="insert-or-update-salary" doc:name="update-salary-flow"/>
+        <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE salary_id = 1;" returns="&quot;SALARY_ID&quot;,&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;1&quot;,&quot;10001&quot;,&quot;85097&quot;,&quot;22-Jun-2014&quot;,&quot;28-May-2016&quot;" doc:name="validateQuery: old record updated"/>
     </munit:test>
-    <munit:test name="update-salary-bad-data-test" description="MUnit Test">
+    <munit:test name="update-salary-subflow-bad-data-test" description="MUnit Test" expectException="java.lang.NumberFormatException">
         <mock:when messageProcessor=".*:.*" doc:name="Mock: dead-letter queue">
             <mock:with-attributes>
                 <mock:with-attribute name="doc:name" whereValue="#['send to dead-letter queue']"/>
@@ -44,10 +45,21 @@ http://www.mulesoft.org/schema/mule/mock http://www.mulesoft.org/schema/mule/moc
             <mock:then-return payload="&quot;dead-letter&quot;"/>
         </mock:when>
         <munit:set payload="#[getResource('updateSalaryBadDataTest.json').asString()]" doc:name="Set Message: bad data"/>
-        <flow-ref name="update-salary-flow" doc:name="update-salary-flow"/>
+        <flow-ref name="insert-or-update-salary" doc:name="update-salary-flow"/>
         <munit:assert-payload-equals message="The message was expected to be sent to the dead-letter queue" expectedValue="&quot;dead-letter&quot;" doc:name="Assert Payload: message sent to dead-letter queue"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='9999-01-01';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;88958&quot;,&quot;22-Jun-2015&quot;,&quot;01-Jan-9999&quot;" doc:name="validateQuery: new record added"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT COUNT(*) FROM salary_history WHERE emp_no=10001;" returns="&quot;COUNT(*)&quot;\n&quot;3&quot;" doc:name="validateQuery: count records to verify none were added"/>
+    </munit:test>
+    <munit:test name="insert-new-employee-subflow-test" description="MUnit Test">
+    	<munit:set payload="#[getResource('good_insert_employee_only.json').asString()]" doc:name="Set Message: bad data"/>
+        <flow-ref name="insert-or-update-employee" doc:name="insert-or-update-employee"/>
+        <dbserver:validate-that config-ref="DB_Server" query="SELECT count(*) from employees" returns="&quot;COUNT(*)&quot;\n&quot;2&quot;" doc:name="validateQuery: employee record count"/>
+    	<dbserver:validate-that config-ref="DB_Server" query="SELECT * from employees order by emp_no" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;\n&quot;10001&quot;,&quot;02-Sep-1973&quot;,&quot;George&quot;,&quot;Johnson&quot;,&quot;M&quot;,&quot;26-Jun-2012&quot;\n&quot;10002&quot;,&quot;10-Mar-1940&quot;,&quot;Chuck&quot;,&quot;Norris&quot;,&quot;M&quot;,&quot;09-Mar-1940&quot;" doc:name="validateQuery: employee records"/>
+    </munit:test>
+    <munit:test name="update-employee-subflow-test" description="MUnit Test">
+        <munit:set payload="#[getResource('good_update_employee_only.json').asString()]" doc:name="Set Message: good_update_employee_only.json'"/>
+        <flow-ref name="insert-or-update-employee" doc:name="insert-or-update-employee"/>
+        <dbserver:validate-that config-ref="DB_Server" query="SELECT * from employees" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;\n&quot;10001&quot;,&quot;10-Mar-1940&quot;,&quot;Chuck&quot;,&quot;Norris&quot;,&quot;M&quot;,&quot;09-Mar-1940&quot;" doc:name="validateQuery: count records to verify none were added"/>
     </munit:test>
     <munit:after-test name="munit-database-server-practice-test-suiteAfter_Test" description="After tests actions">
         <dbserver:stop-db-server config-ref="DB_Server" doc:name="stopServer"/>

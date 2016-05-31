@@ -89,6 +89,9 @@
                     </execution>
                 </executions>
                 <configuration>
+                	<systemPropertyVariables>
+                		<MULE_ENV>test</MULE_ENV>
+                	</systemPropertyVariables>
                     <coverage>
                         <runCoverage>true</runCoverage>
                         <formats>
@@ -177,6 +180,12 @@
         <dependency>
             <groupId>org.mule.modules</groupId>
             <artifactId>mule-module-db</artifactId>
+            <version>${mule.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mule.modules</groupId>
+            <artifactId>mule-module-json</artifactId>
             <version>${mule.version}</version>
             <scope>provided</scope>
         </dependency>

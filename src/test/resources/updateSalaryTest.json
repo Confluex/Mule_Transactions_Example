@@ -1,5 +1,8 @@
 {
-	"emp_no":"10001",
-	"change_date":"2016-5-28",
-	"new_salary":"95000"
+	"emp_no":10001,
+	"salary":{
+		"salary_id":1,
+		"to_date":"2016-5-28",
+		"salary":95000
+	}
 }
