@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:vm="http://www.mulesoft.org/schema/mule/vm" xmlns:context="http://www.springframework.org/schema/context"
+    xmlns="http://www.mulesoft.org/schema/mule/core" 
+    xmlns:db="http://www.mulesoft.org/schema/mule/db"    
+    xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+    xmlns:spring="http://www.springframework.org/schema/beans" 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd">
+
+    <context:property-placeholder location="${MULE_ENV:test}-app.properties"/>
+
+    <!-- Set Up a default Java Data Base Connection -->
+    <spring:beans>
+        <spring:bean id="jdbcDataSource" class="org.springframework.jdbc.datasource.SimpleDriverDataSource">
+            <spring:property name="driverClass" value="${db.driver}" />
+            <spring:property name="url" value="${db.url}" />
+            <spring:property name="username" value="${db.user}" />
+            <spring:property name="password" value="${db.password}" />
+        </spring:bean>
+    </spring:beans>
+
+    <!-- Configure your DB connector referencing your JDBC specs -->
+    <db:generic-config name="Generic_Database_Configuration" doc:name="Generic Database Configuration" dataSource-ref="jdbcDataSource" />
+
+    <flow name="insert-update-employee-and-salary">
+        <vm:inbound-endpoint exchange-pattern="one-way" path="upsert-employee" doc:name="VM">
+        </vm:inbound-endpoint>
+        <json:json-to-object-transformer doc:name="JSON to Object" returnClass="java.util.Map"/>
+        <transactional action="ALWAYS_BEGIN" doc:name="Transactional">
+            <flow-ref name="insert-or-update-employee" doc:name="insert-or-update-employee"/>
+            <flow-ref name="insert-or-update-salary" doc:name="insert-or-update-salary"/>
+            <catch-exception-strategy when="java.sql.SQLException" doc:name="Catch Exception Strategy">
+                <vm:outbound-endpoint exchange-pattern="one-way" path="dead-letter" doc:name="send to dead-letter queue"/>
+            </catch-exception-strategy>
+        </transactional>
+    </flow>
+    <sub-flow name="insert-or-update-salary">
+        <choice doc:name="Choice">
+            <when expression="#[payload.salary.salary_id == null]">
+                <logger message="In Insert Salary path: #[payload]" level="INFO" doc:name="Logger"/>
+                <enricher target="payload.emp_id" doc:name="Message Enricher">
+                    <db:insert config-ref="Generic_Database_Configuration" doc:name="insert new salary record">
+                        <db:parameterized-query><![CDATA[INSERT INTO salary_history(emp_no,salary,from_date,to_date) values(#[payload.emp_id],#[payload.salary.salary], #[payload.salary.from_date], #[payload.salary.to_date])]]></db:parameterized-query>
+                    </db:insert>
+                </enricher>
+            </when>
+            <otherwise>
+                <logger message="In Update Salary path: #[payload]" level="INFO" doc:name="Logger"/>
+                <enricher target="variable:num_salary_rows_updated" doc:name="Message Enricher">
+                    <db:update config-ref="Generic_Database_Configuration" doc:name="update currect salary record">
+                        <db:parameterized-query><![CDATA[UPDATE salary_history SET to_date=#[payload.salary.to_date] WHERE 
+salary_id = #[payload.salary.salary_id]]]></db:parameterized-query>
+                    </db:update>
+                </enricher>
+            </otherwise>
+        </choice>
+    </sub-flow>
+    <sub-flow name="insert-or-update-employee">
+        <choice doc:name="insert or update">
+        	<when expression="#[payload.emp_id == null]" >
+        		<enricher target="variable:emplyee_id" doc:name="Message Enricher">
+	                <db:insert config-ref="Generic_Database_Configuration" doc:name="insert employee">
+                        <db:parameterized-query><![CDATA[INSERT INTO employees(birth_date,first_name,last_name,gender,hire_date) 
+      VALUES (#[payload.birth_date], 
+      			#[payload.first_name], 
+      			#[payload.last_name],
+      			#[payload.gender],
+      			#[payload.hire_date])]]></db:parameterized-query>
+	                </db:insert>
+	            </enricher>
+        	</when>
+            <otherwise>
+                <enricher target="variable:numOfEmployeesUpdated" doc:name="Message Enricher">
+                    <db:update config-ref="Generic_Database_Configuration" doc:name="Database">
+                        <db:parameterized-query><![CDATA[UPDATE employees
+SET birth_date = #[payload.birth_date],
+	first_name = #[payload.first_name],
+	last_name = #[payload.last_name],
+	gender = #[payload.gender],
+	hire_date = #[payload.hire_date]
+WHERE
+	emp_no = #[payload.emp_id]]]></db:parameterized-query>
+                    </db:update>
+                </enricher>
+            </otherwise>
+        </choice>
+    </sub-flow>
+</mule>
