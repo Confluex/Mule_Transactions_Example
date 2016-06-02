@@ -31,13 +31,13 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
 
     <munit:test name="shouldInsertEmployeeAndSalary" description="MUnit Test">
         <munit:set payload="#[getResource('goodEmployeeAndSalary.json').asString()]" doc:name="Set Message"/>
-        <flow-ref name="insert-update-employee-and-salary" doc:name="insert-update-employee-and-salary"/>
+        <flow-ref name="employee-service" doc:name="employee-service"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM employees where last_name = 'Norris';" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;\n&quot;10002&quot;,&quot;10-Mar-1940&quot;,&quot;Chuck&quot;,&quot;Norris&quot;,&quot;M&quot;,&quot;09-Mar-1940&quot;" doc:name="validateQuery: verify in employee table"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history where salary_id = 4" returns="&quot;SALARY_ID&quot;,&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;4&quot;,&quot;10002&quot;,&quot;99999999&quot;,&quot;09-Mar-1940&quot;,&quot;28-May-2999&quot;" doc:name="validateQuery: verify in salary table"/>
     </munit:test>
     <munit:test name="shouldNotInsertEmployeeIfInsertSalaryFails" description="MUnit Test">
         <munit:set payload="#[getResource('goodEmployeeBadSalary.json').asString()]" doc:name="Set Message"/>
-        <flow-ref name="insert-update-employee-and-salary" doc:name="insert-update-employee-and-salary"/>
+        <flow-ref name="employee-service" doc:name="employee-service"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM employees where last_name = 'Norris';" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;" doc:name="validateQuery: old record updated"/>
     </munit:test>
     <munit:test name="update-salary-subflow-test" description="MUnit Test">

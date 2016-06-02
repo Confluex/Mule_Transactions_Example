@@ -30,7 +30,7 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
     <!-- Configure your DB connector referencing your JDBC specs -->
     <db:generic-config name="Generic_Database_Configuration" doc:name="Generic Database Configuration" dataSource-ref="jdbcDataSource" />
 
-    <flow name="insert-update-employee-and-salary">
+    <flow name="employee-service">
         <vm:inbound-endpoint exchange-pattern="one-way" path="upsert-employee" doc:name="VM">
         </vm:inbound-endpoint>
         <json:json-to-object-transformer doc:name="JSON to Object" returnClass="java.util.Map"/>
