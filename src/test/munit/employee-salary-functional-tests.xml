@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<mule xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:mock="http://www.mulesoft.org/schema/mule/mock" 
+<mule xmlns:synchronize="http://www.mulesoft.org/schema/mule/synchronize"
+	xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:mock="http://www.mulesoft.org/schema/mule/mock" 
     xmlns="http://www.mulesoft.org/schema/mule/core" 
     xmlns:db="http://www.mulesoft.org/schema/mule/db" 
     xmlns:vm="http://www.mulesoft.org/schema/mule/vm" 
@@ -9,7 +10,8 @@
     xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" 
     xmlns:spring="http://www.springframework.org/schema/beans" 
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+    xsi:schemaLocation="http://www.mulesoft.org/schema/mule/synchronize http://www.mulesoft.org/schema/mule/synchronize/current/mule-synchronize.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
 http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
 http://www.mulesoft.org/schema/mule/dbserver http://www.mulesoft.org/schema/mule/dbserver/current/mule-dbserver.xsd
 http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
@@ -22,9 +24,12 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
         <spring:import resource="classpath:insert_update_employee.xml"/>
     </spring:beans>
     <dbserver:config name="DB_Server" database="DATABASE_NAME" sqlFile="jdbc/ddl.sql" doc:name="DB Server"/>
-    <munit:before-test name="munit-database-server-practice-test-suiteBefore_Test" description="Before tests actions">
-        <dbserver:start-db-server config-ref="DB_Server" doc:name="startServer"/>
+    <munit:before-test name="before-test-clean-and-reload-tables" description="clean and reload tables">
+        <dbserver:execute config-ref="DB_Server" sql="#[getResource('jdbc/clean-tables.sql').asString()]" doc:name="DB Server"/>
     </munit:before-test>
+    <munit:before-suite name="employee-salary-functional-testsBefore_Suite" description="MUnit Test">
+        <dbserver:start-db-server config-ref="DB_Server" doc:name="startServer"/>
+    </munit:before-suite>
     <munit:test name="validate-query-employees-table" description="MUnit Test">
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM employees WHERE emp_no=10001;" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;\n&quot;10001&quot;,&quot;02-Sep-1973&quot;,&quot;George&quot;,&quot;Johnson&quot;,&quot;M&quot;,&quot;26-Jun-2012&quot;" doc:name="validateQuery"/>
     </munit:test>
@@ -43,22 +48,8 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
     <munit:test name="update-salary-subflow-test" description="MUnit Test">
         <munit:set payload="#[getResource('updateSalaryTest.json').asString()]" doc:name="Set Message: good data"/>
         <json:json-to-object-transformer doc:name="JSON to Object" returnClass="java.util.Map"/>
-        <flow-ref name="insert-or-update-salary" doc:name="update-salary-flow"/>
+        <flow-ref name="insert-or-update-salary" doc:name="insert-or-update-salary"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE salary_id = 1;" returns="&quot;SALARY_ID&quot;,&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;1&quot;,&quot;10001&quot;,&quot;85097&quot;,&quot;22-Jun-2014&quot;,&quot;28-May-2016&quot;" doc:name="validateQuery: old record updated"/>
-    </munit:test>
-    <munit:test name="update-salary-subflow-bad-data-test" description="MUnit Test" expectException="java.lang.NumberFormatException">
-        <mock:when messageProcessor=".*:.*" doc:name="Mock: dead-letter queue">
-            <mock:with-attributes>
-                <mock:with-attribute name="doc:name" whereValue="#['send to dead-letter queue']"/>
-            </mock:with-attributes>
-            <mock:then-return payload="&quot;dead-letter&quot;"/>
-        </mock:when>
-        <munit:set payload="#[getResource('updateSalaryBadDataTest.json').asString()]" doc:name="Set Message: bad data"/>
-        <json:json-to-object-transformer doc:name="JSON to Object" returnClass="java.util.Map"/>
-        <flow-ref name="insert-or-update-salary" doc:name="update-salary-flow"/>
-        <munit:assert-payload-equals message="The message was expected to be sent to the dead-letter queue" expectedValue="&quot;dead-letter&quot;" doc:name="Assert Payload: message sent to dead-letter queue"/>
-        <dbserver:validate-that config-ref="DB_Server" query="SELECT * FROM salary_history WHERE emp_no=10001 AND to_date='9999-01-01';" returns="&quot;EMP_NO&quot;,&quot;SALARY&quot;,&quot;FROM_DATE&quot;,&quot;TO_DATE&quot;\n&quot;10001&quot;,&quot;88958&quot;,&quot;22-Jun-2015&quot;,&quot;01-Jan-9999&quot;" doc:name="validateQuery: new record added"/>
-        <dbserver:validate-that config-ref="DB_Server" query="SELECT COUNT(*) FROM salary_history WHERE emp_no=10001;" returns="&quot;COUNT(*)&quot;\n&quot;3&quot;" doc:name="validateQuery: count records to verify none were added"/>
     </munit:test>
     <munit:test name="insert-new-employee-subflow-test" description="MUnit Test">
     	<munit:set payload="#[getResource('good_insert_employee_only.json').asStream()]" doc:name="Set Message: bad data"/>
@@ -73,7 +64,7 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
         <flow-ref name="insert-or-update-employee" doc:name="insert-or-update-employee"/>
         <dbserver:validate-that config-ref="DB_Server" query="SELECT * from employees" returns="&quot;EMP_NO&quot;,&quot;BIRTH_DATE&quot;,&quot;FIRST_NAME&quot;,&quot;LAST_NAME&quot;,&quot;GENDER&quot;,&quot;HIRE_DATE&quot;\n&quot;10001&quot;,&quot;10-Mar-1940&quot;,&quot;Chuck&quot;,&quot;Norris&quot;,&quot;M&quot;,&quot;09-Mar-1940&quot;" doc:name="validateQuery: count records to verify none were added"/>
     </munit:test>
-    <munit:after-test name="munit-database-server-practice-test-suiteAfter_Test" description="After tests actions">
+    <munit:after-suite name="employee-salary-functional-testsAfter_Suite" description="Ater suite actions">
         <dbserver:stop-db-server config-ref="DB_Server" doc:name="stopServer"/>
-    </munit:after-test>
+    </munit:after-suite>
 </mule>

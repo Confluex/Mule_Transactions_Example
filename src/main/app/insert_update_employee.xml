@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<mule xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:vm="http://www.mulesoft.org/schema/mule/vm" xmlns:context="http://www.springframework.org/schema/context"
+<mule xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:vm="http://www.mulesoft.org/schema/mule/vm" xmlns:context="http://www.springframework.org/schema/context"
     xmlns="http://www.mulesoft.org/schema/mule/core" 
     xmlns:db="http://www.mulesoft.org/schema/mule/db"    
     xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
@@ -13,7 +13,8 @@ http://www.springframework.org/schema/beans http://www.springframework.org/schem
 http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
 http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
 http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
-http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd">
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd">
 
     <context:property-placeholder location="${MULE_ENV:test}-app.properties"/>
 
@@ -31,16 +32,46 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
     <db:generic-config name="Generic_Database_Configuration" doc:name="Generic Database Configuration" dataSource-ref="jdbcDataSource" />
 
     <flow name="employee-service">
-        <vm:inbound-endpoint exchange-pattern="one-way" path="upsert-employee" doc:name="VM">
-        </vm:inbound-endpoint>
-        <json:json-to-object-transformer doc:name="JSON to Object" returnClass="java.util.Map"/>
-        <transactional action="ALWAYS_BEGIN" doc:name="Transactional">
+        <vm:inbound-endpoint exchange-pattern="one-way"  doc:name="VM" address="vm://upsert-employee"/>
+        <json:json-to-object-transformer doc:name="JSON to Map" returnClass="java.util.Map"/>
+        <ee:multi-transactional action="ALWAYS_BEGIN" doc:name="Transactional">
             <flow-ref name="insert-or-update-employee" doc:name="insert-or-update-employee"/>
             <flow-ref name="insert-or-update-salary" doc:name="insert-or-update-salary"/>
-            <catch-exception-strategy when="java.sql.SQLException" doc:name="Catch Exception Strategy">
-                <vm:outbound-endpoint exchange-pattern="one-way" path="dead-letter" doc:name="send to dead-letter queue"/>
+        </ee:multi-transactional>
+        <choice-exception-strategy doc:name="Choice Exception Strategy">
+        	<catch-exception-strategy when="#[exception.causedBy(java.lang.NumberFormatException)]" doc:name="Catch number format exception">
+                <logger message="Logger: Number Format Exception: #[groovy:message.getExceptionPayload()]" level="DEBUG" doc:name="Logger"/>
+                <vm:outbound-endpoint exchange-pattern="one-way" path="expected-exception" doc:name="send to expected-exception"/>
             </catch-exception-strategy>
-        </transactional>
+	        <catch-exception-strategy  doc:name="Catch Sql Exceptions" when="#[exception.causedBy(java.sql.SQLException)]">
+	             <logger message="Logger: Sql Exception: #[groovy:message.getExceptionPayload()]" level="INFO" doc:name="Logger"/>
+	     		<vm:outbound-endpoint exchange-pattern="one-way" path="expected-exception" doc:name="send to expected-exception"/>
+	     	</catch-exception-strategy>
+	        <catch-exception-strategy  doc:name="Catch Unexpected Exceptions">
+	             <logger message="Logger: Unexpected Exception: #[groovy:message.getExceptionPayload()]" level="INFO" doc:name="Logger"/>
+	             <vm:outbound-endpoint exchange-pattern="one-way" path="unexpected-exception" doc:name="send to unexpected exceptions"/>
+	         </catch-exception-strategy>
+         </choice-exception-strategy>
+    </flow>
+    <flow name="throw-exception" processingStrategy="asynchronous">
+        <logger level="INFO" doc:name="Logger" message="About to throw an exception:"/>
+        <scripting:transformer doc:name="Groovy">
+            <scripting:script engine="Groovy"><![CDATA[sleep(25000);
+throw new java.lang.Exception('Something bad');]]></scripting:script>
+        </scripting:transformer>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger message="Catching dumb exception" level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <flow name="expected-exception">
+        <vm:inbound-endpoint exchange-pattern="one-way" path="expected-exception" doc:name="QueuePath: expected-exception"/>
+        <set-variable variableName="TheException" value="#[groovy:message.getExceptionPayload()]" doc:name="Variable"/>
+        <logger message="My Message: [#[message]]" level="INFO" doc:name="Logger"/>
+    </flow>
+    <flow name="unexpected-exception">
+        <vm:inbound-endpoint exchange-pattern="one-way" path="unexpected-exception" doc:name="QueuePath: unexpected-exception"/>
+        <set-variable variableName="TheException" value="#[groovy:message.getExceptionPayload()]" doc:name="Variable"/>
+        <logger message="My Message: [#[message]]" level="INFO" doc:name="Logger"/>
     </flow>
     <sub-flow name="insert-or-update-salary">
         <logger message="Message stuff: #[message]" level="INFO" doc:name="Logger"/>
@@ -48,7 +79,7 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
             <when expression="#[payload.salary.salary_id == null]">
                 <logger message="In Insert Salary path: #[payload]" level="INFO" doc:name="Logger"/>
                 <enricher target="variable:salary_id" doc:name="Message Enricher" source="#[groovy: message.payload[0]['GENERATED_KEYS'] ?: message.payload[0]['SCOPE_IDENTITY()']]">
-                    <db:insert config-ref="Generic_Database_Configuration" doc:name="insert new salary record"  autoGeneratedKeys="true" autoGeneratedKeysColumnIndexes="1">
+                    <db:insert config-ref="Generic_Database_Configuration" doc:name="insert new salary record"  autoGeneratedKeys="true" autoGeneratedKeysColumnIndexes="1" >
                         <db:parameterized-query><![CDATA[INSERT INTO salary_history(emp_no,salary,from_date,to_date) values(#[payload.emp_id],#[payload.salary.salary], #[payload.salary.from_date], #[payload.salary.to_date])]]></db:parameterized-query>
                     </db:insert>
                 </enricher>
@@ -56,12 +87,10 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
             </when>
             <otherwise>
                 <logger message="In Update Salary path: #[payload]" level="INFO" doc:name="Logger"/>
-                <enricher target="variable:num_salary_rows_updated" doc:name="Message Enricher">
-                    <db:update config-ref="Generic_Database_Configuration" doc:name="update currect salary record">
-                        <db:parameterized-query><![CDATA[UPDATE salary_history SET to_date=#[payload.salary.to_date] WHERE 
+                <db:update config-ref="Generic_Database_Configuration" target="#[flowVars.num_salary_rows_updated]" doc:name="update currect salary record">
+                    <db:parameterized-query><![CDATA[UPDATE salary_history SET to_date=#[payload.salary.to_date] WHERE 
 salary_id = #[payload.salary.salary_id]]]></db:parameterized-query>
-                    </db:update>
-                </enricher>
+                </db:update>
             </otherwise>
         </choice>
     </sub-flow>
@@ -69,7 +98,7 @@ salary_id = #[payload.salary.salary_id]]]></db:parameterized-query>
         <choice doc:name="insert or update">
         	<when expression="#[payload.emp_id == null]" >
         		<enricher target="variable:employee_id" doc:name="Message Enricher" source="#[groovy: message.payload[0]['GENERATED_KEYS'] ?: message.payload[0]['SCOPE_IDENTITY()']]">
-	                <db:insert config-ref="Generic_Database_Configuration" doc:name="insert employee" autoGeneratedKeys="true" autoGeneratedKeysColumnIndexes="1">
+	                <db:insert config-ref="Generic_Database_Configuration" doc:name="insert employee" autoGeneratedKeys="true" autoGeneratedKeysColumnIndexes="1" >
                         <db:parameterized-query><![CDATA[INSERT INTO employees(birth_date,first_name,last_name,gender,hire_date) 
       VALUES (#[payload.birth_date], 
       			#[payload.first_name], 
@@ -81,9 +110,9 @@ salary_id = #[payload.salary.salary_id]]]></db:parameterized-query>
                 <set-payload value="#[payload.emp_id = flowVars.employee_id; payload]" doc:name="Set Payload"/>
         	</when>
             <otherwise>
-                <enricher target="variable:numOfEmployeesUpdated" doc:name="Message Enricher">
-                    <db:update config-ref="Generic_Database_Configuration" doc:name="Database">
-                        <db:parameterized-query><![CDATA[UPDATE employees
+                
+                    <db:update config-ref="Generic_Database_Configuration" doc:name="Database" target="#[flowVars.num_employee_rows_updated]">
+                    <db:parameterized-query><![CDATA[UPDATE employees
 SET birth_date = #[payload.birth_date],
 	first_name = #[payload.first_name],
 	last_name = #[payload.last_name],
@@ -92,7 +121,6 @@ SET birth_date = #[payload.birth_date],
 WHERE
 	emp_no = #[payload.emp_id]]]></db:parameterized-query>
                     </db:update>
-                </enricher>
             </otherwise>
         </choice>
     </sub-flow>

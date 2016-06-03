@@ -36,6 +36,14 @@
                             <groupId>org.mule.modules</groupId>
                             <artifactId>mule-module-extensions-spring-support</artifactId>
                         </inclusion>
+                    <inclusion>
+                            <groupId>org.mule.modules</groupId>
+                            <artifactId>mule-module-s3</artifactId>
+                        </inclusion>
+                    <inclusion>
+                            <groupId>com.mulesoft.munit.utils</groupId>
+                            <artifactId>munit-synchronize-module</artifactId>
+                        </inclusion>
                     </inclusions>
                 </configuration>
             </plugin>
@@ -242,6 +250,16 @@
             <version>${mule.version}</version>
             <scope>provided</scope>
         </dependency>
+    <dependency>
+            <groupId>org.mule.modules</groupId>
+            <artifactId>mule-module-s3</artifactId>
+            <version>4.0.1</version>
+        </dependency>
+    <dependency>
+            <groupId>com.mulesoft.munit.utils</groupId>
+            <artifactId>munit-synchronize-module</artifactId>
+            <version>1.0.0</version>
+        </dependency>
     </dependencies>
 
     <repositories>
@@ -256,6 +274,11 @@
             <name>MuleSoft Releases Repository</name>
             <url>http://repository.mulesoft.org/releases/</url>
             <layout>default</layout>
+        </repository>
+    <repository>
+            <id>mule-ee-releases</id>
+            <name>MuleEE Releases Repository</name>
+            <url>https://repository-master.mulesoft.org/nexus/content/repositories/releases-ee/</url>
         </repository>
     </repositories>
     <pluginRepositories>
