@@ -25,7 +25,7 @@ http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/jso
     </spring:beans>
     <dbserver:config name="DB_Server" database="DATABASE_NAME" sqlFile="jdbc/ddl.sql" doc:name="DB Server"/>
     <munit:before-test name="before-test-clean-and-reload-tables" description="clean and reload tables">
-        <dbserver:execute config-ref="DB_Server" sql="#[getResource('jdbc/clean-tables.sql').asString()]" doc:name="DB Server"/>
+        <dbserver:execute config-ref="DB_Server" sql="#[getResource('jdbc/clean-tables.sql').asString()]" doc:name="clean up data"/>
     </munit:before-test>
     <munit:before-suite name="employee-salary-functional-testsBefore_Suite" description="MUnit Test">
         <dbserver:start-db-server config-ref="DB_Server" doc:name="startServer"/>
